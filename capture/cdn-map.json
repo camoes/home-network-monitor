@@ -1,0 +1,10 @@
+{
+  "_comment": "Respaldo para flujos SIN dominio observado (QUIC/HTTP-3 o conexión ya establecida). Si el flujo trae SNI/Host/DNS, el dominio manda y esta tabla se ignora. 'enabled: false' o borrar el fichero desactiva el respaldo sin tocar código. 'debug: true' imprime una línea por destino nombrado (también según NETVIZ_CDN_DEBUG). No se toca DNS, router, firewall ni AdGuard. El prefijo más específico gana.",
+  "_how": "Etiqueta = inferencia, no dominio observado. 212.166.133.0/24: sonda TLS sin SNI devuelve CN=*.googlevideo.com (Google Trust Services WR2) en .207/.210 -> caché GGC de Google dentro de Vodafone AS12430. El /18 es genérico: sólo el operador.",
+  "enabled": true,
+  "debug": false,
+  "prefixes": {
+    "212.166.133.0/24": "CDN vídeo Google (googlevideo) – caché en Vodafone",
+    "212.166.128.0/18": "CDN Vodafone AS12430 – sin SNI"
+  }
+}

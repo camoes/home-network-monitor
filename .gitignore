@@ -1,0 +1,9 @@
+.aider*
+.env
+router.env
+adguard.env
+device-overrides.csv
+dns-map-data/
+capture/devices.json
+*.pcapng
+dist/

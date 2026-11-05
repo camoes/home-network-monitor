@@ -1,0 +1,98 @@
+{
+  "id": null,
+  "uid": "zte-router-wan",
+  "title": "Tráfico WAN — ZTE F6600P",
+  "tags": ["network", "router", "wan"],
+  "timezone": "browser",
+  "schemaVersion": 42,
+  "version": 1,
+  "refresh": "1m",
+  "time": {"from": "now-6h", "to": "now"},
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Bajada WAN (Mbps)",
+      "description": "Caudal agregado recibido desde Internet por la conexión FTTH-Data.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 0},
+      "fieldConfig": {"defaults": {"unit": "Mbits", "min": 0}, "overrides": []},
+      "targets": [{"refId": "A", "expr": "rate(router_wan_received_bytes_total[5m]) * 8 / 1000000", "legendFormat": "Bajada"}],
+      "options": {"legend": {"showLegend": true, "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "none"}}
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Subida WAN (Mbps)",
+      "description": "Caudal agregado enviado a Internet por la conexión FTTH-Data.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 0},
+      "fieldConfig": {"defaults": {"unit": "Mbits", "min": 0}, "overrides": []},
+      "targets": [{"refId": "A", "expr": "rate(router_wan_transmitted_bytes_total[5m]) * 8 / 1000000", "legendFormat": "Subida"}],
+      "options": {"legend": {"showLegend": true, "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "none"}}
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Datos recibidos acumulados",
+      "description": "Contador acumulado de la conexión WAN; puede reiniciarse al reiniciar el router.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 8, "x": 0, "y": 9},
+      "fieldConfig": {"defaults": {"unit": "gbytes", "decimals": 2}, "overrides": []},
+      "targets": [{"refId": "A", "expr": "router_wan_received_bytes_total / 1073741824", "legendFormat": "Bajada acumulada"}],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "orientation": "auto", "textMode": "auto", "colorMode": "value", "graphMode": "area", "justifyMode": "auto"}
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Datos enviados acumulados",
+      "description": "Contador acumulado de la conexión WAN; puede reiniciarse al reiniciar el router.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 8, "x": 8, "y": 9},
+      "fieldConfig": {"defaults": {"unit": "gbytes", "decimals": 2}, "overrides": []},
+      "targets": [{"refId": "A", "expr": "router_wan_transmitted_bytes_total / 1073741824", "legendFormat": "Subida acumulada"}],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "orientation": "auto", "textMode": "auto", "colorMode": "value", "graphMode": "area", "justifyMode": "auto"}
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Conexión WAN",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 8, "x": 16, "y": 9},
+      "fieldConfig": {"defaults": {"min": 0, "max": 1, "mappings": [{"type": "value", "options": {"0": {"text": "Desconectada", "color": "red"}, "1": {"text": "Conectada", "color": "green"}}}]}, "overrides": []},
+      "targets": [{"refId": "A", "expr": "router_wan_connection_up", "legendFormat": "Estado"}],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "orientation": "auto", "textMode": "auto", "colorMode": "background", "graphMode": "none", "justifyMode": "auto"}
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Dispositivos conectados",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 8, "x": 0, "y": 14},
+      "fieldConfig": {"defaults": {"min": 0, "decimals": 0}, "overrides": []},
+      "targets": [{"refId": "A", "expr": "sum(router_connected_devices)", "legendFormat": "Dispositivos"}],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "orientation": "auto", "textMode": "auto", "colorMode": "value", "graphMode": "none", "justifyMode": "auto"}
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Inventario del router",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 8, "x": 8, "y": 14},
+      "fieldConfig": {"defaults": {"min": 0, "max": 1, "mappings": [{"type": "value", "options": {"0": {"text": "Sin datos", "color": "red"}, "1": {"text": "Actualizado", "color": "green"}}}]}, "overrides": []},
+      "targets": [{"refId": "A", "expr": "router_device_inventory_scrape_success", "legendFormat": "Inventario"}],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "orientation": "auto", "textMode": "auto", "colorMode": "background", "graphMode": "none", "justifyMode": "auto"}
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Dispositivos conectados — LAN/WLAN",
+      "description": "Nombre, IP, MAC, tipo detectado por el router y enlace. No equivale a inspeccionar sus solicitudes de red.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 19},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "targets": [{"refId": "A", "expr": "router_connected_device_info", "format": "table", "instant": true, "legendFormat": "{{name}}"}],
+      "options": {"showHeader": true, "cellHeight": "sm", "sortBy": []}
+    }
+  ]
+}

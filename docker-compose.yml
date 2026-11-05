@@ -1,0 +1,213 @@
+# Stack de monitorización doméstica. Despliegue: `make up` (o `docker compose up -d --build`).
+# Copia `.env.example` a `.env` antes de arrancar.
+
+services:
+  # ---------------------------------------------------------------- métricas
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    user: "0"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules.yml:/etc/prometheus/rules.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-30d}'
+      - '--web.enable-lifecycle'
+    ports:
+      - '127.0.0.1:9090:9090'
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    networks: [monitor-net]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9090/-/healthy >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    labels:
+      com.usuario.project: monitor-internet
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: alertmanager
+    volumes:
+      - ./alertmanager/config.yml:/etc/alertmanager/config.yml:ro
+    command:
+      - '--config.file=/etc/alertmanager/config.yml'
+    ports:
+      - '127.0.0.1:9093:9093'
+    networks: [monitor-net]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9093/-/healthy >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    labels:
+      com.usuario.project: monitor-internet
+
+  blackbox:
+    image: prom/blackbox-exporter:latest
+    container_name: blackbox
+    volumes:
+      - ./blackbox/blackbox.yml:/etc/blackbox/blackbox.yml:ro
+    command:
+      - '--config.file=/etc/blackbox/blackbox.yml'
+    networks: [monitor-net]
+    restart: unless-stopped
+    cap_add: [NET_RAW]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9115/-/healthy >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    labels:
+      com.usuario.project: monitor-internet
+
+  # ------------------------------------------------------------- exportadores
+  speedtest:
+    image: miguelndecarvalho/speedtest-exporter:latest
+    container_name: speedtest
+    networks: [monitor-net]
+    restart: unless-stopped
+    labels:
+      com.usuario.project: monitor-internet
+
+  contract-exporter:
+    image: python:3.12-alpine
+    container_name: contract-exporter
+    command: ['python', '/app/contract_exporter.py']
+    environment:
+      ISP_DOWNLOAD_MBPS: ${ISP_DOWNLOAD_MBPS:-0}
+      ISP_UPLOAD_MBPS: ${ISP_UPLOAD_MBPS:-0}
+    volumes:
+      - ./contract-exporter:/app:ro
+    networks: [monitor-net]
+    restart: unless-stopped
+    labels:
+      com.usuario.project: monitor-internet
+
+  router-exporter:
+    image: python:3.12-alpine
+    container_name: router-exporter
+    command: ['python', '/app/exporter.py']
+    volumes:
+      - ./router-exporter:/app:ro
+      - ./router.env:/run/secrets/router.env:ro
+      - ./device-overrides.csv:/run/secrets/device-overrides.csv:ro
+    networks: [monitor-net]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9800/health >/dev/null || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    labels:
+      com.usuario.project: monitor-internet
+
+  # ------------------------------------------------------- DNS y dispositivos
+  dns-map:
+    build: ./dns-map
+    container_name: dns-map
+    command: ['python', '/app/collector.py']
+    environment:
+      ADGUARD_URL: ${ADGUARD_URL:-http://host.docker.internal:80}
+      ROUTER_EXPORTER_URL: http://router-exporter:9800/metrics
+      DB_PATH: /data/netviz.db
+      OUI_PATH: /data/oui.csv
+      POLL_SECONDS: ${DNS_MAP_POLL_SECONDS:-60}
+      QUERYLOG_LIMIT: '2000'
+      HTTP_PORT: '8080'
+      GEOIP_API: ${GEOIP_API:-ip-api}
+    volumes:
+      - ./dns-map:/app:ro
+      - dns_map_data:/data
+      - ./adguard.env:/run/secrets/adguard.env:ro
+      - ./device-overrides.csv:/run/secrets/device-overrides.csv:ro
+    ports:
+      - '127.0.0.1:8080:8080'
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    networks: [monitor-net]
+    depends_on:
+      router-exporter:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz >/dev/null || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    labels:
+      com.usuario.project: monitor-internet
+
+  # ------------------------------------------------------------------ grafana
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    user: "0"
+    volumes:
+      - grafana_data_clean:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in .env}
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3000}
+    ports:
+      - '127.0.0.1:3000:3000'
+    networks: [monitor-net]
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      alertmanager:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    labels:
+      com.usuario.project: monitor-internet
+
+  # ------------------------------------------- captura de paquetes (solo Linux)
+  # En macOS la captura va nativa (ver capture/README.md): un contenedor no ve la
+  # interfaz física. En Linux este perfil la ejecuta con la red del host:
+  #   docker compose --profile capture up -d
+  capture:
+    profiles: [capture]
+    build: ./capture
+    container_name: capture
+    network_mode: host
+    cap_add: [NET_RAW, NET_ADMIN]
+    environment:
+      NETVIZ_IFACE: ${CAPTURE_IFACE:-eth0}
+      NETVIZ_TSHARK: /usr/bin/tshark
+      NETVIZ_CAPTURE_PORT: '9101'
+      NETVIZ_CAPTURE_STATE: /state
+    volumes:
+      - capture_state:/state
+      - ./capture/cdn-map.json:/app/cdn-map.json:ro   # editar la tabla sin reconstruir
+    restart: unless-stopped
+    labels:
+      com.usuario.project: monitor-internet
+
+networks:
+  monitor-net:
+    driver: bridge
+
+volumes:
+  prometheus_data:
+  grafana_data_clean:
+  dns_map_data:
+  capture_state:

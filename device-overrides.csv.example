@@ -1,0 +1,5 @@
+# Optional local labels; copy to device-overrides.csv (ignored by Git, mode 600).
+# MAC addresses are normalized case-insensitively. device_type can be luz, ordenador,
+# television, consola, cámara, móvil, or any label you prefer.
+mac,name,device_type
+00:00:5E:00:53:05,Ejemplo de lámpara,luz

@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Red doméstica · DNS y conexiones</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  :root {
+    --bg: #0b0f14; --panel: #111823; --line: #1e2a38; --text: #e6edf5;
+    --muted: #8fa3b8; --accent: #4cc2ff; --warn: #ffb020; --bad: #ff5c5c;
+    --ok: #43d17c;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 -apple-system, "SF Pro Text", Segoe UI, Roboto, sans-serif;
+         background: var(--bg); color: var(--text); }
+  header { display: flex; align-items: center; gap: 18px; padding: 12px 18px;
+           border-bottom: 1px solid var(--line); background: #0d131b; position: sticky; top: 0; z-index: 500; }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: .2px; }
+  header .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  nav { display: flex; gap: 4px; margin-left: auto; }
+  nav button { background: transparent; color: var(--muted); border: 1px solid transparent;
+               padding: 6px 12px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+  nav button.active { color: var(--text); background: #1a2430; border-color: var(--line); }
+  main { display: grid; grid-template-columns: 300px 1fr; height: calc(100vh - 55px); }
+  aside { border-right: 1px solid var(--line); padding: 14px; overflow-y: auto; background: var(--panel); }
+  .card { background: #0f1620; border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+  .card h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted);
+             margin: 0 0 8px; font-weight: 600; }
+  .kpi { display: flex; justify-content: space-between; align-items: baseline; padding: 3px 0; }
+  .kpi b { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .kpi span { color: var(--muted); font-size: 12px; }
+  .bar { height: 4px; border-radius: 2px; background: #1b2532; overflow: hidden; margin: 2px 0 8px; }
+  .bar i { display: block; height: 100%; background: var(--accent); }
+  select, input { width: 100%; background: #0b131c; color: var(--text); border: 1px solid var(--line);
+                  border-radius: 8px; padding: 7px 9px; font-size: 13px; }
+  #map { height: 100%; background: #0b0f14; }
+  .view { display: none; height: 100%; overflow-y: auto; padding: 18px; }
+  .view.active { display: block; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--muted); font-weight: 500; font-size: 11px;
+       text-transform: uppercase; letter-spacing: .6px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  td { padding: 8px 10px; border-bottom: 1px solid #16202c; }
+  tr:hover td { background: #101922; }
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px;
+         background: #16222f; color: #9fc3dd; border: 1px solid #223344; }
+  .tag.blocked { background: #2a1414; color: #ff9b9b; border-color: #4a2020; }
+  .tag.internal { background: #1d2418; color: #b8e08a; border-color: #2c3a22; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: #a9bfd4; }
+  .tree { font-size: 13px; }
+  .node { border-left: 2px solid #223344; margin-left: 10px; padding-left: 14px; }
+  .node .label { padding: 4px 0; }
+  .leaflet-popup-content-wrapper { background: #111823; color: var(--text); border: 1px solid var(--line); }
+  .leaflet-popup-tip { background: #111823; }
+  .leaflet-container { font: inherit; }
+  .empty { color: var(--muted); padding: 24px; text-align: center; }
+  .pill { font-size: 11px; color: var(--muted); }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; grid-template-rows: auto 1fr; } aside { max-height: 42vh; } }
+</style>
+</head>
+<body>
+<header>
+  <span class="dot"></span>
+  <h1>Red doméstica · DNS, dispositivos y conexiones</h1>
+  <nav>
+    <button data-view="map" class="active">Mapa</button>
+    <button data-view="lan">Red local</button>
+    <button data-view="devices">Dispositivos</button>
+    <button data-view="privacy">Privacidad</button>
+    <button data-view="recent">Consultas</button>
+  </nav>
+</header>
+
+<main>
+  <aside>
+    <div class="card">
+      <h2>Resumen</h2>
+      <div class="kpi"><b id="kpi-queries">–</b><span>consultas DNS</span></div>
+      <div class="kpi"><b id="kpi-domains">–</b><span>dominios</span></div>
+      <div class="kpi"><b id="kpi-devices">–</b><span>dispositivos</span></div>
+      <div class="bar"><i id="bar-ext" style="width:0%"></i></div>
+      <div class="pill" id="kpi-kinds">–</div>
+    </div>
+    <div class="card">
+      <h2>Filtro</h2>
+      <select id="device-filter"><option value="">Todos los dispositivos</option></select>
+      <div style="margin-top:8px"><select id="range">
+        <option value="24">Últimas 24 h</option>
+        <option value="168" selected>Últimos 7 días</option>
+        <option value="720">Últimos 30 días</option>
+      </select></div>
+    </div>
+    <div class="card">
+      <h2>Origen doméstico</h2>
+      <div class="pill" id="home-line">detectando…</div>
+    </div>
+    <div class="card">
+      <h2>Países destino</h2>
+      <div id="countries" class="pill">–</div>
+    </div>
+  </aside>
+
+  <section style="position:relative;height:100%;overflow:hidden">
+    <div id="map" class="view active" style="padding:0"></div>
+    <div id="lan" class="view"></div>
+    <div id="devices" class="view"></div>
+    <div id="privacy" class="view"></div>
+    <div id="recent" class="view"></div>
+  </section>
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const $ = (s) => document.querySelector(s);
+const fmt = (n) => new Intl.NumberFormat('es-ES').format(n ?? 0);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+let map, layerPoints, homeMarker, data = {};
+
+function initMap() {
+  map = L.map('map', {
+    zoomControl: true, worldCopyJump: false, minZoom: 2,
+    maxBounds: [[-85, -180], [85, 180]], maxBoundsViscosity: 0.8
+  }).setView([30, 0], 2);
+  // Esri's dark canvas works without a key; CARTO's basemaps now require one.
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ', maxZoom: 16, noWrap: true
+  }).addTo(map);
+  // Labels/borders on top: the base canvas alone has almost no contrast.
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 16, opacity: 1, noWrap: true
+  }).addTo(map);
+  layerPoints = L.layerGroup().addTo(map);
+  const legend = L.control({ position: 'bottomleft' });
+  legend.onAdd = () => {
+    const div = L.DomUtil.create('div');
+    div.style.cssText = 'background:#0f1620e6;border:1px solid #1e2a38;border-radius:8px;padding:8px 10px;font-size:11px;color:#a9bfd4';
+    div.innerHTML = '<b style="color:#e6edf5">Leyenda</b><br>' +
+      '<span style="color:#4cc2ff">●</span> destino DNS (tamaño = consultas)<br>' +
+      '<span style="color:#4cc2ff">—</span> origen → destino<br>' +
+      '🏠 ubicación aproximada del router';
+    return div;
+  };
+  legend.addTo(map);
+}
+
+// Quadratic bezier between two points so arcs curve instead of crossing.
+function arcPoints(a, b, bend = 0.22, steps = 28) {
+  const [lat1, lon1] = a, [lat2, lon2] = b;
+  const mx = (lat1 + lat2) / 2, my = (lon1 + lon2) / 2;
+  const dx = lat2 - lat1, dy = lon2 - lon1;
+  const norm = Math.hypot(dx, dy) || 1;
+  const cx = mx - (dy / norm) * norm * bend, cy = my + (dx / norm) * norm * bend;
+  const out = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps, u = 1 - t;
+    out.push([u * u * lat1 + 2 * u * t * cx + t * t * lat2,
+              u * u * lon1 + 2 * u * t * cy + t * t * lon2]);
+  }
+  return out;
+}
+
+async function loadSummary() {
+  const s = await (await fetch('/api/summary')).json();
+  $('#kpi-queries').textContent = fmt(s.total_queries);
+  $('#kpi-domains').textContent = fmt(s.domains);
+  $('#kpi-devices').textContent = fmt(s.devices);
+  const k = s.kinds || {};
+  const total = Object.values(k).reduce((a, b) => a + b, 0) || 1;
+  $('#bar-ext').style.width = Math.round(((k.external || 0) / total) * 100) + '%';
+  $('#kpi-kinds').innerHTML =
+    `<span class="tag">exterior ${fmt(k.external || 0)}</span> ` +
+    `<span class="tag internal">interno ${fmt(k.internal || 0)}</span> ` +
+    `<span class="tag blocked">bloqueado ${fmt(k.blocked || 0)}</span>`;
+  if (s.home && s.home.lat) {
+    $('#home-line').innerHTML = `${esc(s.home.city)}, ${esc(s.home.country)}<br>` +
+      `<span class="mono">${esc(s.home.lat.toFixed(2))}, ${esc(s.home.lon.toFixed(2))} · ${esc(s.home.isp || '')}</span>`;
+  } else {
+    $('#home-line').textContent = 'sin geolocalización de origen';
+  }
+  $('#countries').innerHTML = (s.top_countries || []).map(c =>
+    `<div class="kpi"><span>${esc(c.country || '—')}</span><b style="font-size:13px">${fmt(c.hits)}</b></div>`
+  ).join('') || '—';
+  data.summary = s;
+}
+
+async function loadMap() {
+  const device = $('#device-filter').value;
+  const hours = $('#range').value;
+  const m = await (await fetch(`/api/map?device=${encodeURIComponent(device)}&hours=${hours}`)).json();
+  layerPoints.clearLayers();
+  const home = m.home || {};
+  if (homeMarker) { map.removeLayer(homeMarker); homeMarker = null; }
+  if (home.lat) {
+    homeMarker = L.marker([home.lat, home.lon], {
+      icon: L.divIcon({ html: '<div style="font-size:22px;line-height:1">🏠</div>', className: '', iconSize: [24, 24] })
+    }).addTo(map).bindPopup(`<b>Tu red</b><br>${esc(home.city || '')} · ${esc(home.isp || '')}`);
+  }
+  const max = Math.max(1, ...m.points.map(p => p.hits));
+  for (const p of m.points) {
+    if (home.lat) {
+      L.polyline(arcPoints([home.lat, home.lon], [p.lat, p.lon]), {
+        color: '#4cc2ff', weight: p.hits > max * 0.4 ? 2 : 1, opacity: 0.2 + 0.4 * (p.hits / max)
+      }).addTo(layerPoints);
+    }
+    const r = 4 + 14 * Math.sqrt(p.hits / max);
+    L.circleMarker([p.lat, p.lon], {
+      radius: r, color: '#4cc2ff', weight: 1, fillColor: '#4cc2ff', fillOpacity: 0.35
+    }).addTo(layerPoints).bindPopup(
+      `<b>${esc(p.city || '—')}, ${esc(p.country || '—')}</b><br>` +
+      `<span class="mono">${esc(p.org || '')}</span><br>` +
+      `${fmt(p.hits)} consultas · ${fmt(p.domains)} dominios · ${fmt(p.clients)} dispositivos` +
+      (p.top_domains && p.top_domains.length
+        ? '<hr style="border-color:#223"><div class="mono">' + p.top_domains.map(d => `${esc(d.domain)} (${d.hits})`).join('<br>') + '</div>'
+        : '')
+    );
+  }
+  data.map = m;
+  // Fit once per filter change; the 60 s refresh must not steal the user's zoom.
+  if (!window.__fitted && m.points.length) {
+    const bounds = L.latLngBounds(m.points.map(p => [p.lat, p.lon]));
+    if (home.lat) bounds.extend([home.lat, home.lon]);
+    map.fitBounds(bounds.pad(0.3), { maxZoom: 4 });
+    window.__fitted = true;
+  }
+}
+
+async function loadDevices() {
+  const d = await (await fetch('/api/devices')).json();
+  $('#devices').innerHTML = `<div class="card" style="max-width:none">
+    <h2>Dispositivos conectados · tipología</h2>
+    <table><thead><tr><th></th><th>Nombre</th><th>Tipo</th><th>Fabricante</th><th>IP</th>
+    <th>MAC</th><th>Red</th><th>Consultas DNS</th></tr></thead><tbody>` +
+    d.devices.map(x => `<tr>
+      <td style="font-size:16px">${x.icon}</td>
+      <td><b>${esc(x.name)}</b></td>
+      <td><span class="tag">${esc(x.device_type)}</span></td>
+      <td class="pill">${esc(x.vendor || '—')}</td>
+      <td class="mono">${esc(x.ip || '—')}</td>
+      <td class="mono">${esc(x.mac)}</td>
+      <td class="pill">${x.network === 'WLAN' ? esc(x.ssid || x.port || 'Wi-Fi') : esc(x.port || 'LAN')}</td>
+      <td style="text-align:right" class="mono">${fmt(x.queries)}</td></tr>`).join('') +
+    `</tbody></table></div>`;
+
+  const sel = $('#device-filter');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">Todos los dispositivos</option>' +
+    d.devices.filter(x => x.queries > 0 || x.ip).map(x =>
+      `<option value="${esc(x.mac)}">${x.icon} ${esc(x.name)} (${esc(x.device_type)})</option>`).join('');
+  sel.value = current;
+  data.devices = d;
+}
+
+async function loadInternal() {
+  const i = await (await fetch('/api/internal')).json();
+  const d = data.devices || await (await fetch('/api/devices')).json();
+  const groups = {};
+  for (const dev of d.devices) {
+    const key = dev.network === 'WLAN' ? `Wi-Fi · ${dev.ssid || dev.port || 'SSID'}` : `Cableado · ${dev.port || 'LAN'}`;
+    (groups[key] = groups[key] || []).push(dev);
+  }
+  const tree = Object.entries(groups).sort().map(([group, list]) => `
+    <div class="node"><div class="label"><b>${esc(group)}</b> <span class="pill">${list.length} ${list.length === 1 ? 'equipo' : 'equipos'}</span></div>
+      ${list.map(dev => `<div class="node"><div class="label">${dev.icon} <b>${esc(dev.name)}</b>
+        <span class="tag">${esc(dev.device_type)}</span>
+        <span class="mono">${esc(dev.ip || '')}</span></div></div>`).join('')}
+    </div>`).join('');
+
+  $('#lan').innerHTML = `
+    <div class="grid2">
+      <div class="card"><h2>Topología</h2>
+        <div class="tree"><div class="label">🛰️ <b>Router ZTE F6600P</b> <span class="pill">puerta de enlace</span></div>${tree}</div>
+      </div>
+      <div class="card"><h2>Tráfico interno (DNS a equipos de la LAN)</h2>
+        ${i.internal.length ? `<table><thead><tr><th>Destino</th><th>IP</th><th>Origen</th><th>Consultas</th></tr></thead><tbody>` +
+          i.internal.map(x => `<tr><td>${x.icon} ${esc(x.target_name)}</td><td class="mono">${esc(x.dest_ip)}</td>
+            <td class="pill">${x.sources.map(s => esc(s.name)).slice(0, 4).join(', ')}</td>
+            <td style="text-align:right" class="mono">${fmt(x.hits)}</td></tr>`).join('') +
+          '</tbody></table>' : '<div class="empty">Sin consultas internas en la ventana.</div>'}
+      </div>
+    </div>`;
+}
+
+async function loadPrivacy() {
+  const p = await (await fetch('/api/privacy?hours=' + $('#range').value)).json();
+  const silent = p.devices.filter(d => d.silent);
+  const active = p.devices.filter(d => !d.silent);
+  const deviceCard = (d) => `
+    <div class="card">
+      <h2>${d.icon} ${esc(d.name)} · ${esc(d.device_type)}</h2>
+      <div class="pill">${esc(d.network === 'WLAN' ? (d.ssid || 'Wi-Fi') : (d.port || 'LAN'))} · ${esc(d.ip)}</div>
+      <div class="kpi" style="margin-top:8px"><b>${fmt(d.hits)}</b><span>consultas</span></div>
+      <div class="kpi"><b>${fmt(d.blocked)}</b><span>bloqueadas</span></div>
+      <div class="kpi"><b style="color:${d.tracker_hits ? 'var(--warn)' : 'inherit'}">${fmt(d.tracker_hits)}</b><span>telemetría</span></div>
+      ${d.domains.length ? `<table style="margin-top:8px"><thead><tr><th>Dominio</th><th>Nº</th></tr></thead><tbody>` +
+        d.domains.slice(0, 12).map(x => `<tr><td>${esc(x.domain)}
+          ${x.blocked ? '<span class="tag blocked">bloqueado</span>' : ''}
+          ${x.tracker ? '<span class="tag" style="background:#2a2114;color:#ffce7a;border-color:#4a3a20">telemetría</span>' : ''}
+        </td><td class="mono" style="text-align:right">${fmt(x.hits)}</td></tr>`).join('') +
+        `</tbody></table>` : '<div class="empty" style="padding:12px">Sin consultas DNS</div>'}
+    </div>`;
+
+  $('#privacy').innerHTML = `
+    <div class="card" style="max-width:none;margin-bottom:14px">
+      <h2>Equipos sin actividad DNS visible · ${silent.length}</h2>
+      ${silent.length ? `<div class="pill" style="margin-bottom:10px">De estos equipos no se ha visto ni una consulta:
+        usan otro servidor DNS, DNS cifrado (DoH/DoT) o están inactivos. Para auditarlos hace falta captura de flujos,
+        no DNS.</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">${silent.map(d =>
+          `<span class="tag">${d.icon} ${esc(d.name)} · ${esc(d.device_type)} · ${esc(d.ip)}</span>`).join('')}</div>`
+        : '<div class="pill">Todos los equipos conectados han consultado a AdGuard.</div>'}
+    </div>
+    <div class="grid2">${active.map(deviceCard).join('')}</div>`;
+}
+
+async function loadRecent() {
+  const r = await (await fetch('/api/recent?limit=300')).json();
+  $('#recent').innerHTML = `<div class="card" style="max-width:none"><h2>Últimas consultas DNS</h2>
+    <table><thead><tr><th>Hora</th><th>Dispositivo</th><th>Dominio</th><th>Tipo</th>
+    <th>Destino</th><th>Lugar</th></tr></thead><tbody>` +
+    (r.queries.length ? r.queries.map(q => `<tr>
+      <td class="mono">${esc((q.ts || '').replace('T', ' ').slice(5, 19))}</td>
+      <td>${esc(q.name || q.client_ip)}<div class="pill">${esc(q.device_type || '')}</div></td>
+      <td>${esc(q.domain)}</td>
+      <td class="pill">${esc(q.qtype)}</td>
+      <td>${q.dest_kind === 'internal' ? `<span class="tag internal">${esc(q.dest_ip || 'LAN')}</span>`
+            : q.blocked ? '<span class="tag blocked">bloqueado</span>'
+            : `<span class="mono">${esc(q.dest_ip || '—')}</span>`}</td>
+      <td class="pill">${esc([q.city, q.country].filter(Boolean).join(', ') || '—')}</td></tr>`).join('')
+      : '<tr><td colspan="6" class="empty">Sin datos todavía.</td></tr>') +
+    `</tbody></table></div>`;
+}
+
+function bindTabs() {
+  document.querySelectorAll('nav button').forEach(btn => btn.addEventListener('click', async () => {
+    document.querySelectorAll('nav button').forEach(b => b.classList.toggle('active', b === btn));
+    document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === btn.dataset.view));
+    if (btn.dataset.view === 'map') { map.invalidateSize(); await loadMap(); }
+    if (btn.dataset.view === 'devices') await loadDevices();
+    if (btn.dataset.view === 'lan') await loadInternal();
+    if (btn.dataset.view === 'privacy') await loadPrivacy();
+    if (btn.dataset.view === 'recent') await loadRecent();
+  }));
+  $('#device-filter').addEventListener('change', () => { window.__fitted = false; loadMap(); });
+  $('#range').addEventListener('change', () => { window.__fitted = false; loadMap(); });
+}
+
+(async function boot() {
+  bindTabs();
+  initMap();
+  try {
+    await loadSummary();
+    await loadDevices();
+    await loadMap();
+    await loadInternal();
+  } catch (e) {
+    console.error(e);
+  }
+  setInterval(async () => { try { await loadSummary(); await loadMap(); } catch (e) {} }, 60000);
+})();
+</script>
+</body>
+</html>

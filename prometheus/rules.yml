@@ -1,0 +1,39 @@
+groups:
+  - name: internet-monitoring
+    interval: 30s
+    rules:
+      - alert: LowDownloadAgainstContract
+        expr: isp_contract_configured == 1 and speedtest_download_bits_per_second < (0.8 * isp_contract_download_bits_per_second)
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Download below 80% of contracted speed
+          description: 'Measured {{ $value | humanize }} bit/s, below 80% of the configured contracted download speed.'
+
+      - alert: LowUploadAgainstContract
+        expr: isp_contract_configured == 1 and speedtest_upload_bits_per_second < (0.8 * isp_contract_upload_bits_per_second)
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Upload below 80% of contracted speed
+          description: 'Measured {{ $value | humanize }} bit/s, below 80% of the configured contracted upload speed.'
+
+      - alert: SpeedtestUnavailable
+        expr: up{job="speedtest"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Speedtest exporter unavailable
+          description: Prometheus cannot scrape the Ookla speed test exporter.
+
+      - alert: InternetProbeFailed
+        expr: probe_success{job="blackbox-http"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Internet endpoint probe failed for {{ $labels.instance }}
+          description: The HTTP probe has failed for at least two minutes.

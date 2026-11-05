@@ -1,0 +1,20 @@
+# Plantilla de dnsmasq para el proxy DHCP. run-proxy.sh sustituye __DNS_IP__
+# por la IP actual del Mac antes de arrancar, así que no hay que tocarla a mano.
+
+port=0
+interface=__IFACE__
+bind-interfaces
+
+dhcp-range=192.0.2.0,proxy
+dhcp-proxy=192.0.2.1
+
+# Opción 6: el DNS que anunciamos (AdGuard en este Mac).
+dhcp-option=6,__DNS_IP__
+
+no-resolv
+no-hosts
+
+# Diagnóstico: cada concesión y cada opción inyectada queda en el log.
+log-dhcp
+# A stderr; el supervisor lo redirige a un fichero legible por el usuario.
+log-facility=-
